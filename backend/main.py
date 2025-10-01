@@ -57,6 +57,7 @@ init_db()
 class TurnRequest(BaseModel):
     playerInput: str
     gameState: Dict[str, Any] | None = None
+    apiKey: str | None = None
 
 
 class TurnResponse(BaseModel):
@@ -92,7 +93,7 @@ def _apply_and_serialize(
 
 def _fallback_turn_response() -> Dict[str, Any]:
     logger.warning("Falling back to offline response for /api/turn")
-    narration = "無法連接 AI，請稍後再試。"
+    narration = "無法連接 AI，請稍後再試。若已設定 API Key，請確認無誤。"
     return _apply_and_serialize(narration, [], {"hp": 0, "gold": 0}, [])
 
 
@@ -101,7 +102,13 @@ async def turn(req: TurnRequest) -> Any:
     if not req.playerInput:
         raise HTTPException(status_code=400, detail="playerInput is required")
 
-    if openai is None or not getattr(openai, "api_key", None):
+    if openai is None:
+        return _fallback_turn_response()
+
+    if req.apiKey:
+        openai.api_key = req.apiKey
+
+    if not getattr(openai, "api_key", None):
         return _fallback_turn_response()
 
     system_prompt = (
