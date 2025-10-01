@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+"use client";
+
+import { useEffect, useMemo, useState } from 'react';
 
 export default function Home() {
   // 初始遊戲狀態：血量 10、金錢 0、無物品與歷史
@@ -13,13 +15,20 @@ export default function Home() {
   const [input, setInput] = useState('');          // 玩家輸入字串
   const [apiKey, setApiKey] = useState('');        // 動態輸入的 OpenAI API Key
   const [status, setStatus] = useState('');        // 顯示系統狀態/錯誤
+  const [apiBase, setApiBase] = useState('');      // 後端 API 位址
 
-  // 初始化時從 localStorage 讀取 API Key
+  // 初始化時從 localStorage 讀取 API Key 與 API Base
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const savedKey = window.localStorage.getItem('oe_api_key');
     if (savedKey) {
       setApiKey(savedKey);
+    }
+    const savedBase = window.localStorage.getItem('oe_api_base');
+    if (savedBase) {
+      setApiBase(savedBase);
+    } else {
+      setApiBase('http://localhost:8000');
     }
   }, []);
 
@@ -34,12 +43,37 @@ export default function Home() {
     }
   }
 
+  function persistApiBase(value) {
+    setApiBase(value);
+    if (typeof window !== 'undefined') {
+      if (value) {
+        window.localStorage.setItem('oe_api_base', value);
+      } else {
+        window.localStorage.removeItem('oe_api_base');
+      }
+    }
+  }
+
+  const resolvedApiBase = useMemo(() => {
+    const trimmed = (apiBase || '').trim();
+    if (trimmed) return trimmed.replace(/\/$/, '');
+    if (typeof window !== 'undefined') {
+      return window.location.origin;
+    }
+    return '';
+  }, [apiBase]);
+
   // 呼叫後端 /api/turn 並更新畫面
   async function handleTurn(playerInput) {
     if (!playerInput) return;
+    const base = resolvedApiBase;
+    if (!base) {
+      setStatus('請先設定後端 API 位址。');
+      return;
+    }
     try {
       setStatus('');
-      const res = await fetch('http://localhost:8000/api/turn', {
+      const res = await fetch(`${base}/api/turn`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playerInput, gameState, apiKey })
@@ -69,9 +103,14 @@ export default function Home() {
 
   // 儲存遊戲進度
   async function handleSave() {
+    const base = resolvedApiBase;
+    if (!base) {
+      setStatus('請先設定後端 API 位址。');
+      return;
+    }
     try {
       setStatus('');
-      await fetch('http://localhost:8000/api/save', {
+      await fetch(`${base}/api/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: 'default', game_state: gameState })
@@ -85,9 +124,14 @@ export default function Home() {
 
   // 載入遊戲進度
   async function handleLoad() {
+    const base = resolvedApiBase;
+    if (!base) {
+      setStatus('請先設定後端 API 位址。');
+      return;
+    }
     try {
       setStatus('');
-      const res = await fetch('http://localhost:8000/api/load?player_id=default');
+      const res = await fetch(`${base}/api/load?player_id=default`);
       const data = await res.json();
       if (data.game_state) {
         // 更新狀態與訊息
@@ -107,29 +151,57 @@ export default function Home() {
     <div className="min-h-screen flex flex-col items-center justify-start p-4">
       <h1 className="text-3xl font-bold mb-4 text-center">《語境之門 x LLM》</h1>
       {/* API Key 設定區塊 */}
-      <div className="w-full max-w-5xl mb-4">
-        <label className="block text-sm font-medium mb-1" htmlFor="api-key-input">
-          OpenAI API Key（僅在瀏覽器暫存）
-        </label>
-        <div className="flex">
-          <input
-            id="api-key-input"
-            type="password"
-            value={apiKey}
-            onChange={(e) => persistApiKey(e.target.value)}
-            placeholder="sk-..."
-            className="flex-grow p-2 border rounded-l"
-          />
-          <button
-            onClick={() => persistApiKey(apiKey)}
-            className="px-4 py-2 bg-slate-600 text-white rounded-r hover:bg-slate-700"
-          >
-            保存到此瀏覽器
-          </button>
+      <div className="w-full max-w-5xl mb-4 space-y-3">
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="api-base-input">
+            後端 API 位址
+          </label>
+          <div className="flex">
+            <input
+              id="api-base-input"
+              type="text"
+              value={apiBase}
+              onChange={(e) => persistApiBase(e.target.value)}
+              placeholder="http://localhost:8000"
+              className="flex-grow p-2 border rounded-l"
+            />
+            <button
+              type="button"
+              onClick={() => persistApiBase(apiBase)}
+              className="px-4 py-2 bg-slate-600 text-white rounded-r hover:bg-slate-700"
+            >
+              保存位置
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-600">
+            若部署於遠端主機，請輸入完整的公開網址（例：<code>https://example.com</code>）。
+          </p>
         </div>
-        <p className="mt-1 text-xs text-gray-600">
-          API Key 只會保存在瀏覽器的 localStorage，不會傳到其他地方。
-        </p>
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="api-key-input">
+            OpenAI API Key（僅在瀏覽器暫存）
+          </label>
+          <div className="flex">
+            <input
+              id="api-key-input"
+              type="password"
+              value={apiKey}
+              onChange={(e) => persistApiKey(e.target.value)}
+              placeholder="sk-..."
+              className="flex-grow p-2 border rounded-l"
+            />
+            <button
+              type="button"
+              onClick={() => persistApiKey(apiKey)}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-r hover:bg-emerald-700"
+            >
+              保存金鑰
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-600">
+            API Key 只會保存在瀏覽器的 localStorage，不會傳到其他地方。
+          </p>
+        </div>
       </div>
       <div className="flex flex-col md:flex-row w-full max-w-5xl">
         {/* 左側：遊戲敘事與選項 */}
